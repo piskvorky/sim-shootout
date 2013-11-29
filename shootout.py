@@ -150,6 +150,8 @@ if __name__ == '__main__':
     gensim_at_once(index_gensim, queries)
 
     if 'flann' in program:
+        import pyflann
+
         pyflann.set_distance_type('euclidean')
         index_flann = pyflann.FLANN()
         if os.path.exists(sim_prefix + "_flann"):
@@ -167,6 +169,8 @@ if __name__ == '__main__':
         flann_at_once(index_flann, queries)
 
     if 'annoy' in program:
+        import annoy
+
         index_annoy = annoy.AnnoyIndex(num_features, metric='euclidean')
         if os.path.exists(sim_prefix + "_annoy"):
             logger.info("loading annoy index")

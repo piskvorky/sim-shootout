@@ -99,6 +99,7 @@ if __name__ == '__main__':
     infile, outdir = sys.argv[1:3]
     outfile = lambda fname: os.path.join(outdir, fname)
 
+    # extract plain text from the XML dump
     preprocessed_file = outfile('title_tokens.txt.gz')
     if not os.path.exists(preprocessed_file):
         id2title = []
@@ -112,6 +113,7 @@ if __name__ == '__main__':
                     logger.info("invalid line at title %s" % title)
         gensim.utils.pickle(id2title, outfile('id2title'))
 
+    # build/load a mapping between tokens (strings) and tokens ids (integers)
     dict_file = outfile('dictionary')
     if os.path.exists(dict_file):
         corpus = ShootoutCorpus()
@@ -119,10 +121,11 @@ if __name__ == '__main__':
         corpus.dictionary = gensim.corpora.Dictionary.load(dict_file)
     else:
         corpus = ShootoutCorpus(gensim.utils.smart_open(preprocessed_file))
-        corpus.dictionary.filter_extremes(no_below=20, no_above=0.1, keep_n=50000)
+        corpus.dictionary.filter_extremes(no_below=20, no_above=0.1, keep_n=50000)  # remove too rare/too common words
         corpus.dictionary.save(dict_file)
         corpus.dictionary.save_as_text(dict_file + '.txt')
 
+    # build/load TF-IDF model
     tfidf_file = outfile('tfidf.model')
     if os.path.exists(tfidf_file):
         tfidf = gensim.models.TfidfModel.load(tfidf_file)
@@ -130,6 +133,7 @@ if __name__ == '__main__':
         tfidf = gensim.models.TfidfModel(corpus)
         tfidf.save(tfidf_file)
 
+    # build/load LSI model, on top of the TF-IDF model
     lsi_file = outfile('lsi.model')
     if os.path.exists(lsi_file):
         lsi = gensim.models.LsiModel.load(lsi_file)
@@ -137,6 +141,7 @@ if __name__ == '__main__':
         lsi = gensim.models.LsiModel(tfidf[corpus], id2word=corpus.dictionary, num_topics=NUM_TOPICS, chunksize=10000)
         lsi.save(lsi_file)
 
+    # convert all articles to latent semantic space, store the result as a MatrixMarket file
     vectors_file = os.path.join(outdir, 'lsi_vectors.mm')
     gensim.corpora.MmCorpus.serialize(vectors_file, (gensim.matutils.unitvec(vec) for vec in lsi[tfidf[corpus]]))
 

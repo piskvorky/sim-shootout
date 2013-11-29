@@ -61,6 +61,15 @@ def flann_1by1(index, queries):
         _ = index.nn_index(query, TOP_N)
 
 @profile
+def sklearn_1by1(index, queries):
+    for query in queries:
+        _ = index.kneighbors(query, n_neighbors=TOP_N)
+
+@profile
+def sklearn_at_once(index, queries):
+    _ = index.kneighbors(queries, n_neighbors=TOP_N)
+
+@profile
 def flann_at_once(index, queries):
     _ = index.nn_index(queries, TOP_N)
 
@@ -71,35 +80,53 @@ def annoy_1by1(index, queries):
 
 
 def flann_precision(index_gensim, index_flann, queries):
+    logger.info("computing flann precision")
     correct, diffs = 0, []
     for query in queries:
         expected_ids, expected_sims = zip(*index_gensim[query])
         predicted = index_flann.nn_index(query, TOP_N)
         correct += len(set(expected_ids).intersection(predicted[0][0]))  # how many top-n did flann get right?
-        predicted_sims = 1 - predicted[1][0] / 2  # convert flann output to cossim score
+        predicted_sims = 1 - predicted[1][0] / 2  # convert flann output to cossim scores
         diffs.extend(-predicted_sims + expected_sims)  # how far was flann from the correct values?
     logger.info("flann precision=%.3f, avg diff=%.3f" %
         (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
 
+
+def sklearn_precision(index_gensim, index_sklearn, queries):
+    logger.info("computing sklearn precision")
+    correct, diffs = 0, []
+    for query in queries:
+        expected_ids, expected_sims = zip(*index_gensim[query])
+        distances, indices = index_sklearn.kneighbors(query, TOP_N)
+        indices = list(indices.ravel())
+        correct += len(set(expected_ids).intersection(list(indices)))  # how many top-n did sklearn get right?
+        predicted_sims = 1 - distances.ravel()**2 / 2  # convert sklearn output to cossim scores
+        diffs.extend(-predicted_sims + expected_sims)  # how far was sklearn from the correct values?
+    logger.info("sklearn precision=%.3f, avg diff=%.3f" %
+        (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
+
+
 def annoy_precision(index_gensim, index_annoy, queries):
+    logger.info("computing annoy precision")
     correct, diffs = 0, []
     for query in queries:
         expected_ids, expected_sims = zip(*index_gensim[query])
         predicted = index_annoy.get_nns_by_vector(list(query.astype(float)), TOP_N)
-        correct += len(set(expected_ids).intersection(predicted))  # how many top-n did annoyy get right?
+        correct += len(set(expected_ids).intersection(predicted))  # how many top-n did annoy get right?
         predicted_sims = [numpy.dot(index_gensim.vector_by_id(i), query) for i in predicted]
-        diffs.extend(-numpy.array(predicted_sims) + expected_sims)  # how far was flann from the correct values?
+        diffs.extend(-numpy.array(predicted_sims) + expected_sims)  # how far was annoy from the correct values?
     logger.info("annoy precision=%.3f, avg diff=%.3f" %
         (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
 
 
 def gensim_precision(index_gensim, queries):
+    logger.info("computing gensim precision")
     correct, diffs = 0, []
     for query in queries:
         expected_ids, expected_sims = zip(*index_gensim[query])
         predicted, predicted_sims = expected_ids, expected_sims
-        correct += len(set(expected_ids).intersection(predicted))  # how many top-n did annoyy get right?
-        diffs.extend(-numpy.array(predicted_sims) + expected_sims)  # how far was flann from the correct values?
+        correct += len(set(expected_ids).intersection(predicted))  # how many top-n did gensim get right?
+        diffs.extend(-numpy.array(predicted_sims) + expected_sims)  # how far was gensim from the correct values?
     logger.info("gensim precision=%.3f, avg diff=%.3f" %
         (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
 
@@ -137,16 +164,18 @@ if __name__ == '__main__':
     if os.path.exists(sim_prefix + "_gensim"):
         logger.info("loading gensim index")
         index_gensim = gensim.similarities.Similarity.load(sim_prefix + "_gensim")
-        index_gensim.num_best = TOP_N
+        index_gensim.output_prefix = sim_prefix
+        index_gensim.check_moved()  # update shard locations in case the files were copied somewhere else
     else:
         logger.info("building gensim index")
         index_gensim = gensim.similarities.Similarity(sim_prefix, clipped_corpus, num_best=TOP_N, num_features=num_features, shardsize=100000)
         index_gensim.save(sim_prefix + "_gensim")
         logger.info("built gensim index %s" % index_gensim)
 
-    gensim_precision(index_gensim, queries)  # sanity check & prewarm mmap memory
-    gensim_1by1(index_gensim, queries)
-    gensim_at_once(index_gensim, queries)
+    if 'gensim' in program:
+        gensim_precision(index_gensim, queries)  # sanity check & prewarm mmap memory
+        gensim_1by1(index_gensim, queries)
+        gensim_at_once(index_gensim, queries)
 
     if 'flann' in program:
         import pyflann
@@ -159,7 +188,7 @@ if __name__ == '__main__':
         else:
             logger.info("building FLANN index")
             # flann; expects index vectors as a 2d numpy array, features = columns
-            params = index_flann.build_index(clipped, algorithm="autotuned", target_precision=0.95, log_level="info")
+            params = index_flann.build_index(clipped, algorithm="autotuned", target_precision=0.98, log_level="info")
             index_flann.save_index(sim_prefix + "_flann")
             logger.info("built FLANN index %s" % params)
 
@@ -179,11 +208,26 @@ if __name__ == '__main__':
             # annoy; expects index vectors as lists of Python floats
             for i, vec in enumerate(clipped_corpus):
                 index_annoy.add_item(i, list(gensim.matutils.sparse2full(vec, num_features).astype(float)))
-            index_annoy.build(50)
+            index_annoy.build(70)
             index_annoy.save(sim_prefix + "_annoy")
             logger.info("built annoy index")
 
         annoy_precision(index_gensim, index_annoy, queries)
         annoy_1by1(index_annoy, queries)
+
+    if 'sklearn' in program:
+        from sklearn.neighbors import NearestNeighbors
+
+        if os.path.exists(sim_prefix + "_sklearn"):
+            logger.info("loading sklearn index")
+            index_sklearn = gensim.utils.unpickle(sim_prefix + "_sklearn", 'rb')
+        else:
+            logger.info("building sklearn index")
+            index_sklearn = NearestNeighbors(n_neighbors=TOP_N, algorithm='auto').fit(clipped)
+            gensim.utils.pickle(index_sklearn, sim_prefix + '_sklearn')
+
+        sklearn_precision(index_gensim, index_sklearn, queries)
+        sklearn_1by1(index_sklearn, queries)
+        sklearn_at_once(index_sklearn, queries)
 
     logger.info("finished running %s" % program)

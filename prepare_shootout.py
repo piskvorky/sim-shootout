@@ -107,7 +107,7 @@ if __name__ == '__main__':
                 id2title.append(title)
                 try:
                     line = "%s\t%s" % (title, ' '.join(tokens))
-                    fout.write("%s\n" % gensim.utils.to_utf8(line)) # make sure everything's convertible to utf8
+                    fout.write("%s\n" % gensim.utils.to_utf8(line)) # make sure we're storing proper utf8
                 except:
                     logger.info("invalid line at title %s" % title)
         gensim.utils.pickle(id2title, outfile('id2title'))

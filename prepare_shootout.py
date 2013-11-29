@@ -101,14 +101,16 @@ if __name__ == '__main__':
 
     preprocessed_file = outfile('title_tokens.txt.gz')
     if not os.path.exists(preprocessed_file):
+        id2title = []
         with gensim.utils.smart_open(preprocessed_file, 'wb') as fout:
             for docno, (title, tokens) in enumerate(convert_wiki(infile)):
+                id2title.append(title)
                 try:
-                    line = "%s\t%s" % (title.replace('\t', ''), ' '.join(tokens))
-                    unicode(line, 'utf8')  # make sure everything's convertible to utf8
-                    fout.write("%s\n" % line)
+                    line = "%s\t%s" % (title, ' '.join(tokens))
+                    fout.write("%s\n" % gensim.utils.to_utf8(line)) # make sure everything's convertible to utf8
                 except:
                     logger.info("invalid line at title %s" % title)
+        gensim.utils.pickle(id2title, outfile('id2title'))
 
     dict_file = outfile('dictionary')
     if os.path.exists(dict_file):

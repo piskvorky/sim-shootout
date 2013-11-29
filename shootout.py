@@ -18,13 +18,12 @@ import time
 import logging
 import itertools
 import random
+import cPickle
 from functools import wraps
 
 import numpy
 
 import gensim
-import pyflann
-import annoy
 
 MAX_DOCS = 1000000  # clip the dataset to be indexed at this many docs, if larger
 NUM_QUERIES = 100

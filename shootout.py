@@ -18,7 +18,6 @@ import time
 import logging
 import itertools
 import random
-import cPickle
 from functools import wraps
 
 import numpy
@@ -46,6 +45,7 @@ def profile(fn):
 
     return with_profiling
 
+
 @profile
 def gensim_1by1(index, queries):
     for query in queries:
@@ -61,95 +61,68 @@ def flann_1by1(index, queries):
         _ = index.nn_index(query, TOP_N)
 
 @profile
+def flann_at_once(index, queries):
+    _ = index.nn_index(queries, TOP_N)
+
+@profile
 def sklearn_1by1(index, queries):
     for query in queries:
         _ = index.kneighbors(query, n_neighbors=TOP_N)
-
-@profile
-def lsh_1by1(index, queries):
-    for query in queries:
-        _ = index.Find(query[:, None])[:TOP_N]
 
 @profile
 def sklearn_at_once(index, queries):
     _ = index.kneighbors(queries, n_neighbors=TOP_N)
 
 @profile
-def flann_at_once(index, queries):
-    _ = index.nn_index(queries, TOP_N)
-
-@profile
 def annoy_1by1(index, queries):
     for query in queries:
         _ = index.get_nns_by_vector(list(query.astype(float)), TOP_N)
 
-
-def flann_precision(index_gensim, index_flann, queries):
-    logger.info("computing flann precision")
-    correct, diffs = 0, []
+@profile
+def lsh_1by1(index, queries):
     for query in queries:
+        _ = index.Find(query[:, None])[:TOP_N]
+
+
+def flann_predictions(index, queries):
+    return [index.nn_index(query, TOP_N)[0][0] for query in queries]
+
+
+def sklearn_predictions(index, queries):
+    return [list(index.kneighbors(query, TOP_N)[1].ravel()) for query in queries]
+
+
+def annoy_predictions(index, queries):
+    return [index.get_nns_by_vector(list(query.astype(float)), TOP_N) for query in queries]
+
+
+def lsh_predictions(index, queries):
+    return [[pos for pos, _ in index_lsh.Find(query[:, None])[:TOP_N]] for query in queries]
+
+
+def gensim_predictions(index, queries):
+    return [[pos for pos, _ in index[query]] for query in queries]
+
+
+def get_accuracy(predicted_ids, queries, gensim_index):
+    """Return precision (=percentage of overlapping ids) and average similarity difference."""
+    logger.info("computing ground truth")
+    correct, diffs = 0.0, []
+    for predicted, query in zip(predicted_ids, queries):
         expected_ids, expected_sims = zip(*index_gensim[query])
-        predicted = index_flann.nn_index(query, TOP_N)
-        correct += len(set(expected_ids).intersection(predicted[0][0]))  # how many top-n did flann get right?
-        predicted_sims = 1 - predicted[1][0] / 2  # convert flann output to cossim scores
-        diffs.extend(-predicted_sims + expected_sims)  # how far was flann from the correct values?
-    logger.info("flann precision=%.3f, avg diff=%.3f" %
-        (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
+        correct += len(set(expected_ids).intersection(predicted))
+        predicted_sims = [numpy.dot(gensim_index.vector_by_id(id1), query) for id1 in predicted]
+        # if we got less than TOP_N results, assume zero similarity for the missing ids (LSH)
+        predicted_sims.extend([0.0] * (TOP_N - len(predicted_ids)))
+        diffs.extend(-numpy.array(predicted_sims) + expected_sims)
+    return correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)
 
 
-def sklearn_precision(index_gensim, index_sklearn, queries):
-    logger.info("computing sklearn precision")
-    correct, diffs = 0, []
-    for query in queries:
-        expected_ids, expected_sims = zip(*index_gensim[query])
-        distances, indices = index_sklearn.kneighbors(query, TOP_N)
-        indices = list(indices.ravel())
-        correct += len(set(expected_ids).intersection(list(indices)))  # how many top-n did sklearn get right?
-        predicted_sims = 1 - distances.ravel()**2 / 2  # convert sklearn output to cossim scores
-        diffs.extend(-predicted_sims + expected_sims)  # how far was sklearn from the correct values?
-    logger.info("sklearn precision=%.3f, avg diff=%.3f" %
-        (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
+def log_precision(method, index, queries, gensim_index):
+    logger.info("computing accuracy of %s" % method.__name__)
+    acc, diffs = get_accuracy(method(index, queries), queries, gensim_index)
+    logger.info("%s precision=%.3f, avg diff=%.3f" % (method.__name__, acc, diffs))
 
-
-def annoy_precision(index_gensim, index_annoy, queries):
-    logger.info("computing annoy precision")
-    correct, diffs = 0, []
-    for query in queries:
-        expected_ids, expected_sims = zip(*index_gensim[query])
-        predicted = index_annoy.get_nns_by_vector(list(query.astype(float)), TOP_N)
-        correct += len(set(expected_ids).intersection(predicted))  # how many top-n did annoy get right?
-        predicted_sims = [numpy.dot(index_gensim.vector_by_id(i), query) for i in predicted]
-        diffs.extend(-numpy.array(predicted_sims) + expected_sims)  # how far was annoy from the correct values?
-    logger.info("annoy precision=%.3f, avg diff=%.3f" %
-        (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
-
-
-def lsh_precision(index_gensim, index_lsh, queries, clipped):
-    logger.info("computing lsh precision")
-    correct, diffs, lens = 0, [], []
-    for query in queries:
-        expected_ids, expected_sims = zip(*index_gensim[query])
-        predicted = index_lsh.Find(query[:, None])[:TOP_N]
-        predicted_ids = [pos for pos, _ in predicted]
-        correct += len(set(expected_ids).intersection(predicted_ids))
-        predicted_sims = [numpy.dot(clipped[id1], query) for id1 in predicted_ids]
-        lens.append(len(predicted_sims))
-        predicted_sims.extend([0.0] * (TOP_N - len(predicted_ids)))  # if we got less than TOP_N results, assume zero similarity for the rest, up to TOP_N
-        diffs.extend(-numpy.array(predicted_sims) + expected_sims)  # how far was lsh from the correct values?
-    logger.info("lsh precision=%.3f, avg diff=%.3f, avg lens=%.1f" %
-        (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs), 1.0 * sum(lens) / len(lens)))
-
-
-def gensim_precision(index_gensim, queries):
-    logger.info("computing gensim precision")
-    correct, diffs = 0, []
-    for query in queries:
-        expected_ids, expected_sims = zip(*index_gensim[query])
-        predicted, predicted_sims = expected_ids, expected_sims
-        correct += len(set(expected_ids).intersection(predicted))  # how many top-n did gensim get right?
-        diffs.extend(-numpy.array(predicted_sims) + expected_sims)  # how far was gensim from the correct values?
-    logger.info("gensim precision=%.3f, avg diff=%.3f" %
-        (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
 
 
 if __name__ == '__main__':
@@ -194,7 +167,7 @@ if __name__ == '__main__':
     logger.info("finished gensim index %s" % index_gensim)
 
     if 'gensim' in program:
-        gensim_precision(index_gensim, queries)  # sanity check & prewarm mmap memory
+        log_precision(gensim_predictions, index_gensim, queries, index_gensim)
         gensim_1by1(index_gensim, queries)
         gensim_at_once(index_gensim, queries)
 
@@ -213,7 +186,7 @@ if __name__ == '__main__':
             index_flann.save_index(sim_prefix + "_flann")
         logger.info("finished FLANN index")
 
-        flann_precision(index_gensim, index_flann, queries)
+        log_precision(flann_predictions, index_flann, queries, index_gensim)
         flann_1by1(index_flann, queries)
         flann_at_once(index_flann, queries)
 
@@ -232,7 +205,7 @@ if __name__ == '__main__':
             index_annoy.save(sim_prefix + "_annoy")
             logger.info("built annoy index")
 
-        annoy_precision(index_gensim, index_annoy, queries)
+        log_precision(annoy_predictions, index_annoy, queries, index_gensim)
         annoy_1by1(index_annoy, queries)
 
     if 'lsh' in program:
@@ -242,13 +215,13 @@ if __name__ == '__main__':
             index_lsh = gensim.utils.unpickle(sim_prefix + "_lsh")
         else:
             logger.info("building lsh index")
-            index_lsh = lsh.index(w=float('inf'), k=30, l=10)
+            index_lsh = lsh.index(w=float('inf'), k=10, l=10)
             for vecno, vec in enumerate(clipped):
                 index_lsh.InsertIntoTable(vecno, vec[:, None])
             gensim.utils.pickle(index_lsh, sim_prefix + '_lsh')
         logger.info("finished lsh index")
 
-        lsh_precision(index_gensim, index_lsh, queries, clipped)
+        log_precision(lsh_predictions, index_lsh, queries, index_gensim)
         lsh_1by1(index_lsh, queries)
 
     if 'sklearn' in program:
@@ -259,10 +232,11 @@ if __name__ == '__main__':
         else:
             logger.info("building sklearn index")
             index_sklearn = NearestNeighbors(n_neighbors=TOP_N, algorithm='auto').fit(clipped)
+            logger.info("build sklearn index %s" % index_sklearn._fit_method)
             gensim.utils.pickle(index_sklearn, sim_prefix + '_sklearn')
         logger.info("finished sklearn index")
 
-        sklearn_precision(index_gensim, index_sklearn, queries)
+        log_precision(sklearn_predictions, index_sklearn, queries, index_gensim)
         sklearn_1by1(index_sklearn, queries)
         sklearn_at_once(index_sklearn, queries)
 

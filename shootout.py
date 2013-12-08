@@ -173,7 +173,7 @@ if __name__ == '__main__':
         clipped = numpy.load(sim_prefix + "_clipped.npy", mmap_mode='r')
     else:
         # precompute the entire corpus as a dense matrix in RAM -- FLANN needs this anyway
-        logger.info("creating dense corpus for FLANN")
+        logger.info("creating dense corpus")
         clipped = gensim.matutils.corpus2dense(itertools.islice(mm, MAX_DOCS), num_features).astype(numpy.float32, order='C').T
         numpy.save(sim_prefix + "_clipped.npy", clipped)
     clipped_corpus = gensim.matutils.Dense2Corpus(clipped, documents_columns=False)  # same as the islice(MAX_DOCS) above
@@ -209,8 +209,9 @@ if __name__ == '__main__':
             logger.info("building FLANN index")
             # flann; expects index vectors as a 2d numpy array, features = columns
             params = index_flann.build_index(clipped, algorithm="autotuned", target_precision=0.98, log_level="info")
+            logger.info("built flann index with %s" % params)
             index_flann.save_index(sim_prefix + "_flann")
-        logger.info("finished FLANN index %s" % params)
+        logger.info("finished FLANN index")
 
         flann_precision(index_gensim, index_flann, queries)
         flann_1by1(index_flann, queries)

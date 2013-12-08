@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2013 Radim Rehurek <radimrehurek@seznam.cz>
+# Copyright (C) 2013 Radim Rehurek <me@radimrehurek.com>
 
 """
 USAGE: %(program)s INPUT_DIRECTORY
@@ -66,6 +66,11 @@ def sklearn_1by1(index, queries):
         _ = index.kneighbors(query, n_neighbors=TOP_N)
 
 @profile
+def lsh_1by1(index, queries):
+    for query in queries:
+        _ = index.Find(query[:, None])[:TOP_N]
+
+@profile
 def sklearn_at_once(index, queries):
     _ = index.kneighbors(queries, n_neighbors=TOP_N)
 
@@ -119,6 +124,22 @@ def annoy_precision(index_gensim, index_annoy, queries):
         (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)))
 
 
+def lsh_precision(index_gensim, index_lsh, queries, clipped):
+    logger.info("computing lsh precision")
+    correct, diffs, lens = 0, [], []
+    for query in queries:
+        expected_ids, expected_sims = zip(*index_gensim[query])
+        predicted = index_lsh.Find(query[:, None])[:TOP_N]
+        predicted_ids = [pos for pos, _ in predicted]
+        correct += len(set(expected_ids).intersection(predicted_ids))
+        predicted_sims = [numpy.dot(clipped[id1], query) for id1 in predicted_ids]
+        lens.append(len(predicted_sims))
+        predicted_sims.extend([0.0] * (TOP_N - len(predicted_ids)))  # if we got less than TOP_N results, assume zero similarity for the rest, up to TOP_N
+        diffs.extend(-numpy.array(predicted_sims) + expected_sims)  # how far was lsh from the correct values?
+    logger.info("lsh precision=%.3f, avg diff=%.3f, avg lens=%.1f" %
+        (1.0 * correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs), 1.0 * sum(lens) / len(lens)))
+
+
 def gensim_precision(index_gensim, queries):
     logger.info("computing gensim precision")
     correct, diffs = 0, []
@@ -170,7 +191,7 @@ if __name__ == '__main__':
         logger.info("building gensim index")
         index_gensim = gensim.similarities.Similarity(sim_prefix, clipped_corpus, num_best=TOP_N, num_features=num_features, shardsize=100000)
         index_gensim.save(sim_prefix + "_gensim")
-        logger.info("built gensim index %s" % index_gensim)
+    logger.info("finished gensim index %s" % index_gensim)
 
     if 'gensim' in program:
         gensim_precision(index_gensim, queries)  # sanity check & prewarm mmap memory
@@ -179,7 +200,6 @@ if __name__ == '__main__':
 
     if 'flann' in program:
         import pyflann
-
         pyflann.set_distance_type('euclidean')
         index_flann = pyflann.FLANN()
         if os.path.exists(sim_prefix + "_flann"):
@@ -190,7 +210,7 @@ if __name__ == '__main__':
             # flann; expects index vectors as a 2d numpy array, features = columns
             params = index_flann.build_index(clipped, algorithm="autotuned", target_precision=0.98, log_level="info")
             index_flann.save_index(sim_prefix + "_flann")
-            logger.info("built FLANN index %s" % params)
+        logger.info("finished FLANN index %s" % params)
 
         flann_precision(index_gensim, index_flann, queries)
         flann_1by1(index_flann, queries)
@@ -198,7 +218,6 @@ if __name__ == '__main__':
 
     if 'annoy' in program:
         import annoy
-
         index_annoy = annoy.AnnoyIndex(num_features, metric='euclidean')
         if os.path.exists(sim_prefix + "_annoy"):
             logger.info("loading annoy index")
@@ -208,23 +227,39 @@ if __name__ == '__main__':
             # annoy; expects index vectors as lists of Python floats
             for i, vec in enumerate(clipped_corpus):
                 index_annoy.add_item(i, list(gensim.matutils.sparse2full(vec, num_features).astype(float)))
-            index_annoy.build(70)
+            index_annoy.build(10)
             index_annoy.save(sim_prefix + "_annoy")
             logger.info("built annoy index")
 
         annoy_precision(index_gensim, index_annoy, queries)
         annoy_1by1(index_annoy, queries)
 
+    if 'lsh' in program:
+        import lsh
+        if os.path.exists(sim_prefix + "_lsh"):
+            logger.info("loading lsh index")
+            index_lsh = gensim.utils.unpickle(sim_prefix + "_lsh")
+        else:
+            logger.info("building lsh index")
+            index_lsh = lsh.index(w=float('inf'), k=30, l=10)
+            for vecno, vec in enumerate(clipped):
+                index_lsh.InsertIntoTable(vecno, vec[:, None])
+            gensim.utils.pickle(index_lsh, sim_prefix + '_lsh')
+        logger.info("finished lsh index")
+
+        lsh_precision(index_gensim, index_lsh, queries, clipped)
+        lsh_1by1(index_lsh, queries)
+
     if 'sklearn' in program:
         from sklearn.neighbors import NearestNeighbors
-
         if os.path.exists(sim_prefix + "_sklearn"):
             logger.info("loading sklearn index")
-            index_sklearn = gensim.utils.unpickle(sim_prefix + "_sklearn", 'rb')
+            index_sklearn = gensim.utils.unpickle(sim_prefix + "_sklearn")
         else:
             logger.info("building sklearn index")
             index_sklearn = NearestNeighbors(n_neighbors=TOP_N, algorithm='auto').fit(clipped)
             gensim.utils.pickle(index_sklearn, sim_prefix + '_sklearn')
+        logger.info("finished sklearn index")
 
         sklearn_precision(index_gensim, index_sklearn, queries)
         sklearn_1by1(index_sklearn, queries)

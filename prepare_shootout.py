@@ -1,21 +1,22 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 #
-# Copyright (C) 2013 Radim Rehurek <radimrehurek@seznam.cz>
+# Copyright (C) 2013 Radim Rehurek <me@radimrehurek.com>
 
 """
 USAGE: %(program)s enwiki-latest-pages-articles.xml.bz2 OUTPUT_DIRECTORY
 
-Parse all articles from a raw bz2 Wikipedia dump => train a latent semantic model on the articles => store resulting files into OUTPUT_DIRECTORY:
+Parse all articles from a raw bz2 Wikipedia dump => train a latent semantic model on the \
+articles => store resulting files into OUTPUT_DIRECTORY:
 
 * title_tokens.txt.gz: raw article titles and tokens, one article per line, "article_title[TAB]space_separated_tokens[NEWLINE]"
-* dictionary: pickled mapping between word<=>word_id
+* dictionary: mapping between word<=>word_id
 * dictionary.txt: same as `dictionary` but in plain text format
-* tfidf.model: pickled TF-IDF model
-* lsi.model: pickled model for latent semantic analysis model, trained on TF-IDF'ed wiki dump
+* tfidf.model: TF-IDF model
+* lsi.model: model for latent semantic analysis model, trained on TF-IDF'ed wiki dump
 * lsi_vectors.mm: wikipedia articles stored as vectors in LSI space, in MatrixMarket format
 
-The wikipedia dump can be downloaded from http://dumps.wikimedia.org/enwiki/latest/
+The input wikipedia dump can be downloaded from http://dumps.wikimedia.org/enwiki/latest/
 
 Example:
     ./prepare_shootout.py ~/data/wiki/enwiki-latest-pages-articles.xml.bz2 ~/data/wiki/shootout
@@ -40,27 +41,29 @@ NUM_TOPICS = 500  # number of latent factors for LSA
 
 def process_article((title, text)):
     """Parse a wikipedia article, returning its content as `(title, list of tokens)`, all utf8."""
-    text = gensim.corpora.wikicorpus.filter_wiki(text)  # remove markup etc, get plain text
-    return title.encode('utf8').replace('\t', ''), gensim.utils.simple_preprocess(text)  # tokenize
+    text = gensim.corpora.wikicorpus.filter_wiki(text)  # remove markup, get plain text
+    return title.encode('utf8').replace('\t', ' '), gensim.utils.simple_preprocess(text)
 
 
-def convert_wiki(infile):
+def convert_wiki(infile, processes=multiprocessing.cpu_count()):
     """
     Yield articles from a bz2 Wikipedia dump `infile` as (title, tokens) 2-tuples.
 
     Only articles of sufficient length are returned (short articles & redirects
     etc are ignored).
 
+    Uses multiple processes to speed up the parsing in parallel.
+
     """
-    logger.info("extracting articles from %s using %i processes" % (infile, PROCESSES))
+    logger.info("extracting articles from %s using %i processes" % (infile, processes))
     articles, articles_all = 0, 0
     positions, positions_all = 0, 0
 
-    pool = multiprocessing.Pool(PROCESSES)
+    pool = multiprocessing.Pool(processes)
     # process the corpus in smaller chunks of docs, because multiprocessing.Pool
     # is dumb and would try to load the entire dump into RAM...
     texts = gensim.corpora.wikicorpus._extract_pages(bz2.BZ2File(infile))  # generator
-    for group in gensim.utils.chunkize(texts, chunksize=10 * PROCESSES):
+    for group in gensim.utils.chunkize(texts, chunksize=10 * processes):
         for title, tokens in pool.imap(process_article, group):
             if articles_all % 100000 == 0:
                 logger.info("PROGRESS: at article #%i: '%s'; accepted %i articles with %i total tokens" %
@@ -82,7 +85,7 @@ class ShootoutCorpus(gensim.corpora.TextCorpus):
     def get_texts(self):
         lines = gensim.corpora.textcorpus.getstream(self.input)  # open file/reset stream to its start
         for lineno, line in enumerate(lines):
-            yield line.split('\t')[1].split()
+            yield line.split('\t')[1].split()  # return tokens (ignore the title before the tab)
         self.length = lineno + 1
 
 
@@ -104,7 +107,7 @@ if __name__ == '__main__':
     if not os.path.exists(preprocessed_file):
         id2title = []
         with gensim.utils.smart_open(preprocessed_file, 'wb') as fout:
-            for docno, (title, tokens) in enumerate(convert_wiki(infile)):
+            for docno, (title, tokens) in enumerate(convert_wiki(infile, PROCESSES)):
                 id2title.append(title)
                 try:
                     line = "%s\t%s" % (title, ' '.join(tokens))
@@ -142,6 +145,7 @@ if __name__ == '__main__':
         lsi.save(lsi_file)
 
     # convert all articles to latent semantic space, store the result as a MatrixMarket file
+    # normalize all vectors to unit length, to simulate cossim in libraries that only support euclidean distance
     vectors_file = os.path.join(outdir, 'lsi_vectors.mm')
     gensim.corpora.MmCorpus.serialize(vectors_file, (gensim.matutils.unitvec(vec) for vec in lsi[tfidf[corpus]]))
 

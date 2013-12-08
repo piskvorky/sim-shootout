@@ -1,0 +1,9 @@
+Bottleneck==0.7.0
+Cython==0.19.1
+annoy==1.0
+flann==1.8.4
+gensim==0.8.8
+ipython==0.13.2
+numpy==1.7.1
+scikit-learn==0.14.1
+scipy==0.12.0

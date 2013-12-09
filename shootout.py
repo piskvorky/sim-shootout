@@ -24,7 +24,7 @@ import numpy
 
 import gensim
 
-MAX_DOCS = 10000  # clip the dataset to be indexed at this many docs, if larger
+MAX_DOCS = 1000000  # clip the dataset to be indexed at this many docs, if larger
 NUM_QUERIES = 100
 TOP_N = 50  # how many similars to ask for
 
@@ -124,6 +124,12 @@ def log_precision(method, index, queries, gensim_index):
     logger.info("%s precision=%.3f, avg diff=%.3f" % (method.__name__, acc, diffs))
 
 
+def print_similar(title, index_gensim, id2title, title2id):
+    """Print out the most similar Wikipedia articles, given an article title=query"""
+    pos = title2id[title.lower()]  # throws if title not found
+    for pos2, sim in index_gensim[index_gensim.vector_by_id(pos)]:
+        print pos2, `id2title[pos2]`, sim
+
 
 if __name__ == '__main__':
     logging.basicConfig(format='%(asctime)s : %(levelname)s : %(message)s')
@@ -165,6 +171,11 @@ if __name__ == '__main__':
         index_gensim = gensim.similarities.Similarity(sim_prefix, clipped_corpus, num_best=TOP_N, num_features=num_features, shardsize=100000)
         index_gensim.save(sim_prefix + "_gensim")
     logger.info("finished gensim index %s" % index_gensim)
+
+    logger.info("loading mapping between article titles and ids")
+    id2title = gensim.utils.unpickle(os.path.join(indir, 'id2title'))
+    title2id = dict((title.lower(), pos) for pos, title in enumerate(id2title))
+    # print_similar('Anarchism', index_gensim, id2title, title2id)
 
     if 'gensim' in program:
         log_precision(gensim_predictions, index_gensim, queries, index_gensim)

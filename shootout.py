@@ -24,7 +24,7 @@ import numpy
 
 import gensim
 
-MAX_DOCS = 1000000  # clip the dataset to be indexed at this many docs, if larger
+MAX_DOCS = 10000  # clip the dataset to be indexed at this many docs, if larger
 NUM_QUERIES = 100
 TOP_N = 50  # how many similars to ask for
 
@@ -180,7 +180,7 @@ if __name__ == '__main__':
             index_flann.load_index(sim_prefix + "_flann", clipped)
         else:
             logger.info("building FLANN index")
-            # flann; expects index vectors as a 2d numpy array, features = columns
+            # flann expects index vectors as a 2d numpy array, features = columns
             params = index_flann.build_index(clipped, algorithm="autotuned", target_precision=0.98, log_level="info")
             logger.info("built flann index with %s" % params)
             index_flann.save_index(sim_prefix + "_flann")
@@ -192,13 +192,13 @@ if __name__ == '__main__':
 
     if 'annoy' in program:
         import annoy
-        index_annoy = annoy.AnnoyIndex(num_features, metric='euclidean')
+        index_annoy = annoy.AnnoyIndex(num_features, metric='angular')
         if os.path.exists(sim_prefix + "_annoy"):
             logger.info("loading annoy index")
             index_annoy.load(sim_prefix + "_annoy")
         else:
             logger.info("building annoy index")
-            # annoy; expects index vectors as lists of Python floats
+            # annoy expects index vectors as lists of Python floats
             for i, vec in enumerate(clipped_corpus):
                 index_annoy.add_item(i, list(gensim.matutils.sparse2full(vec, num_features).astype(float)))
             index_annoy.build(10)
@@ -216,6 +216,7 @@ if __name__ == '__main__':
         else:
             logger.info("building lsh index")
             index_lsh = lsh.index(w=float('inf'), k=10, l=10)
+            # lsh expects input as D x 1 numpy arrays
             for vecno, vec in enumerate(clipped):
                 index_lsh.InsertIntoTable(vecno, vec[:, None])
             gensim.utils.pickle(index_lsh, sim_prefix + '_lsh')
@@ -232,7 +233,7 @@ if __name__ == '__main__':
         else:
             logger.info("building sklearn index")
             index_sklearn = NearestNeighbors(n_neighbors=TOP_N, algorithm='auto').fit(clipped)
-            logger.info("build sklearn index %s" % index_sklearn._fit_method)
+            logger.info("built sklearn index %s" % index_sklearn._fit_method)
             gensim.utils.pickle(index_sklearn, sim_prefix + '_sklearn')
         logger.info("finished sklearn index")
 

@@ -17,7 +17,6 @@ import sys
 import time
 import logging
 import itertools
-import random
 from functools import wraps
 
 import numpy
@@ -31,8 +30,8 @@ NUM_QUERIES = 100  # query with this many different, randomly selected documents
 REPEATS = 3  # run all queries this many times, take the best timing
 
 ACC_SETTINGS = {
-    'flann': {0.1: 0.98, 0.01: 0.9},
-    'annoy': {0.1: 10, 0.01: 50},
+    'flann': {0.1: 0.98, 0.01: 0.5},
+    'annoy': {0.1: 12, 0.01: 50},
     'lsh': {0.1: {'k': 10, 'l': 10}, 0.01: {'k': 10, 'l': 10}},
 }
 
@@ -118,7 +117,7 @@ def get_accuracy(predicted_ids, queries, gensim_index):
     logger.info("computing ground truth")
     correct, diffs = 0.0, []
     for predicted, query in zip(predicted_ids, queries):
-        expected_ids, expected_sims = zip(*index_gensim[query])
+        expected_ids, expected_sims = zip(*gensim_index[query])
         correct += len(set(expected_ids).intersection(predicted))
         predicted_sims = [numpy.dot(gensim_index.vector_by_id(id1), query) for id1 in predicted]
         # if we got less than TOP_N results, assume zero similarity for the missing ids (LSH)

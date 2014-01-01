@@ -70,10 +70,18 @@ def convert_wiki(infile, processes=multiprocessing.cpu_count()):
                     (articles_all, title, articles, positions))
             articles_all += 1
             positions_all += len(tokens)
-            if len(tokens) >= MIN_WORDS and not title.startswith('Wikipedia:'): # article redirects and short stubs are pruned here
-                articles += 1
-                positions += len(tokens)
-                yield title, tokens
+
+            # article redirects and short stubs are pruned here
+            if len(tokens) >= MIN_WORDS:
+                continue
+            for ignore in 'Wikipedia Category File Portal Template MediaWiki User Help Book Draft'.split():
+                if title.startswith(ignore + ':'):
+                    continue
+
+            # all good: use this article
+            articles += 1
+            positions += len(tokens)
+            yield title, tokens
     pool.terminate()
 
     logger.info("finished iterating over Wikipedia corpus of %i documents with %i positions"

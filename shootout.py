@@ -24,9 +24,18 @@ import numpy
 
 import gensim
 
-MAX_DOCS = 1000000  # clip the dataset to be indexed at this many docs, if larger
-NUM_QUERIES = 100
+MAX_DOCS = 10000000  # clip the dataset at this many docs, if larger (=use a wiki subset)
 TOP_N = 50  # how many similars to ask for
+ACC = 0.1  # what accuracy are we aiming for (avg k-NN diff)
+NUM_QUERIES = 100  # query with this many different, randomly selected documents
+REPEATS = 3  # run all queries this many times, take the best timing
+
+ACC_SETTINGS = {
+    'flann': {0.1: 0.98, 0.01: 0.9},
+    'annoy': {0.1: 10, 0.01: 50},
+    'lsh': {0.1: {'k': 10, 'l': 10}, 0.01: {'k': 10, 'l': 10}},
+}
+
 
 logger = logging.getLogger('shootout')
 
@@ -34,13 +43,13 @@ def profile(fn):
     @wraps(fn)
     def with_profiling(*args, **kwargs):
         times = []
-        logger.info("benchmarking %s" % fn.__name__)
-        for _ in xrange(3):  # try running it three times, report the best time
+        logger.info("benchmarking %s at k=%s acc=%s" % (fn.__name__, TOP_N, ACC))
+        for _ in xrange(REPEATS):  # try running it three times, report the best time
             start = time.time()
             ret = fn(*args, **kwargs)
             times.append(time.time() - start)
-        logger.info("%s took %.3fs" % (fn.__name__, min(times)))
-        logger.debug("%s raw timings: %s" % (fn.__name__, times))
+        logger.info("%s took %.3fms/query" % (fn.__name__, 1000.0 * min(times) / NUM_QUERIES))
+        logger.info("%s raw timings: %s" % (fn.__name__, times))
         return ret
 
     return with_profiling
@@ -119,7 +128,7 @@ def get_accuracy(predicted_ids, queries, gensim_index):
 
 
 def log_precision(method, index, queries, gensim_index):
-    logger.info("computing accuracy of %s" % method.__name__)
+    logger.info("computing accuracy of %s at k=%s, acc=%s" % (method.__name__, TOP_N, ACC))
     acc, diffs = get_accuracy(method(index, queries), queries, gensim_index)
     logger.info("%s precision=%.3f, avg diff=%.3f" % (method.__name__, acc, diffs))
 
@@ -142,24 +151,33 @@ if __name__ == '__main__':
         print globals()['__doc__'] % locals()
         sys.exit(1)
     indir = sys.argv[1]
+    if len(sys.argv) > 2:
+        TOP_N = int(sys.argv[2])
+    if len(sys.argv) > 3:
+        ACC = float(sys.argv[3])
     lsi_vectors = os.path.join(indir, 'lsi_vectors.mm.gz')
-    sim_prefix = os.path.join(indir, 'index%s' % MAX_DOCS)
+    logger.info("testing k=%s and avg diff=%s" % (TOP_N, ACC))
 
     mm = gensim.corpora.MmCorpus(gensim.utils.smart_open(lsi_vectors))
-    num_features = mm.num_terms
+    num_features, num_docs = mm.num_terms, min(mm.num_docs, MAX_DOCS)
+    sim_prefix = os.path.join(indir, 'index%s' % num_docs)
+
+    # some libs (flann, sklearn) expect th entire input as a full matrix, all at once (no streaming)
     if os.path.exists(sim_prefix + "_clipped.npy"):
-        logger.info("loading dense corpus")
+        logger.info("loading dense corpus (need for flann, scikit-learn)")
         clipped = numpy.load(sim_prefix + "_clipped.npy", mmap_mode='r')
     else:
-        # precompute the entire corpus as a dense matrix in RAM -- FLANN needs this anyway
-        logger.info("creating dense corpus")
-        clipped = gensim.matutils.corpus2dense(itertools.islice(mm, MAX_DOCS), num_features).astype(numpy.float32, order='C').T
+        logger.info("creating dense corpus of %i documents under %s" % (num_docs, sim_prefix + "_clipped.npy"))
+        clipped = numpy.empty((num_docs, num_features), dtype=numpy.float32)
+        for docno, doc in enumerate(itertools.islice(mm, num_docs)):
+            if docno % 100000 == 0:
+                logger.info("at document #%i/%i" % (docno + 1, num_docs))
+            clipped[docno] = gensim.matutils.sparse2full(doc, num_features)
         numpy.save(sim_prefix + "_clipped.npy", clipped)
-    clipped_corpus = gensim.matutils.Dense2Corpus(clipped, documents_columns=False)  # same as the islice(MAX_DOCS) above
+    clipped_corpus = gensim.matutils.Dense2Corpus(clipped, documents_columns=False)  # same as islice(mm, num_docs)
 
-    logger.info("selecting %s random documents, to act as top-%s queries" % (NUM_QUERIES, TOP_N))
-    query_docs = random.sample(range(clipped.shape[0]), NUM_QUERIES)
-    queries = clipped[query_docs]
+    logger.info("selecting %s documents, to act as top-%s queries" % (NUM_QUERIES, TOP_N))
+    queries = clipped[:NUM_QUERIES]
 
     if os.path.exists(sim_prefix + "_gensim"):
         logger.info("loading gensim index")
@@ -178,23 +196,24 @@ if __name__ == '__main__':
     # print_similar('Anarchism', index_gensim, id2title, title2id)
 
     if 'gensim' in program:
-        log_precision(gensim_predictions, index_gensim, queries, index_gensim)
-        gensim_1by1(index_gensim, queries)
+        # log_precision(gensim_predictions, index_gensim, queries, index_gensim)  FIXME
         gensim_at_once(index_gensim, queries)
+        gensim_1by1(index_gensim, queries)
 
     if 'flann' in program:
         import pyflann
         pyflann.set_distance_type('euclidean')
         index_flann = pyflann.FLANN()
-        if os.path.exists(sim_prefix + "_flann"):
+        flann_fname = sim_prefix + "_flann_%s" % ACC
+        if os.path.exists(flann_fname):
             logger.info("loading flann index")
-            index_flann.load_index(sim_prefix + "_flann", clipped)
+            index_flann.load_index(flann_fname, clipped)
         else:
             logger.info("building FLANN index")
             # flann expects index vectors as a 2d numpy array, features = columns
-            params = index_flann.build_index(clipped, algorithm="autotuned", target_precision=0.98, log_level="info")
+            params = index_flann.build_index(clipped, algorithm="autotuned", target_precision=ACC_SETTINGS['flann'][ACC], log_level="info")
             logger.info("built flann index with %s" % params)
-            index_flann.save_index(sim_prefix + "_flann")
+            index_flann.save_index(flann_fname)
         logger.info("finished FLANN index")
 
         log_precision(flann_predictions, index_flann, queries, index_gensim)
@@ -204,16 +223,17 @@ if __name__ == '__main__':
     if 'annoy' in program:
         import annoy
         index_annoy = annoy.AnnoyIndex(num_features, metric='angular')
-        if os.path.exists(sim_prefix + "_annoy"):
+        annoy_fname = sim_prefix + "_annoy_%s" % ACC
+        if os.path.exists(annoy_fname):
             logger.info("loading annoy index")
-            index_annoy.load(sim_prefix + "_annoy")
+            index_annoy.load(annoy_fname)
         else:
             logger.info("building annoy index")
             # annoy expects index vectors as lists of Python floats
             for i, vec in enumerate(clipped_corpus):
                 index_annoy.add_item(i, list(gensim.matutils.sparse2full(vec, num_features).astype(float)))
-            index_annoy.build(10)
-            index_annoy.save(sim_prefix + "_annoy")
+            index_annoy.build(ACC_SETTINGS['annoy'][ACC])
+            index_annoy.save(annoy_fname)
             logger.info("built annoy index")
 
         log_precision(annoy_predictions, index_annoy, queries, index_gensim)
@@ -226,10 +246,10 @@ if __name__ == '__main__':
             index_lsh = gensim.utils.unpickle(sim_prefix + "_lsh")
         else:
             logger.info("building lsh index")
-            index_lsh = lsh.index(w=float('inf'), k=10, l=10)
+            index_lsh = lsh.index(w=float('inf'), k=ACC_SETTINGS['lsh'][ACC]['k'], l=ACC_SETTINGS['lsh'][ACC]['l'])
             # lsh expects input as D x 1 numpy arrays
-            for vecno, vec in enumerate(clipped):
-                index_lsh.InsertIntoTable(vecno, vec[:, None])
+            for vecno, vec in enumerate(clipped_corpus):
+                index_lsh.InsertIntoTable(vecno, gensim.matutils.sparse2full(vec)[:, None])
             gensim.utils.pickle(index_lsh, sim_prefix + '_lsh')
         logger.info("finished lsh index")
 

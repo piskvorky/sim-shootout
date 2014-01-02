@@ -25,12 +25,12 @@ import gensim
 
 MAX_DOCS = 10000000  # clip the dataset at this many docs, if larger (=use a wiki subset)
 TOP_N = 50  # how many similars to ask for
-ACC = 0.1  # what accuracy are we aiming for (avg k-NN diff)
+ACC = 0.1  # what accuracy are we aiming for (avg k-NN diff = cumulative gain)
 NUM_QUERIES = 100  # query with this many different, randomly selected documents
 REPEATS = 3  # run all queries this many times, take the best timing
 
 ACC_SETTINGS = {
-    'flann': {0.1: 0.98, 0.01: 0.5},
+    'flann': {0.1: 0.5, 0.01: 0.98},
     'annoy': {0.1: 12, 0.01: 50},
     'lsh': {0.1: {'k': 10, 'l': 10}, 0.01: {'k': 10, 'l': 10}},
 }
@@ -112,23 +112,24 @@ def gensim_predictions(index, queries):
     return [[pos for pos, _ in index[query]] for query in queries]
 
 
-def get_accuracy(predicted_ids, queries, gensim_index):
+def get_accuracy(predicted_ids, queries, gensim_index, expecteds=None):
     """Return precision (=percentage of overlapping ids) and average similarity difference."""
     logger.info("computing ground truth")
     correct, diffs = 0.0, []
-    for predicted, query in zip(predicted_ids, queries):
-        expected_ids, expected_sims = zip(*gensim_index[query])
+    gensim_index.num_best = TOP_N
+    for query_no, (predicted, query) in enumerate(zip(predicted_ids, queries)):
+        expected_ids, expected_sims = zip(*gensim_index[query]) if expecteds is None else expecteds[query_no]
         correct += len(set(expected_ids).intersection(predicted))
         predicted_sims = [numpy.dot(gensim_index.vector_by_id(id1), query) for id1 in predicted]
         # if we got less than TOP_N results, assume zero similarity for the missing ids (LSH)
-        predicted_sims.extend([0.0] * (TOP_N - len(predicted_ids)))
+        predicted_sims.extend([0.0] * (TOP_N - len(predicted_sims)))
         diffs.extend(-numpy.array(predicted_sims) + expected_sims)
     return correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)
 
 
-def log_precision(method, index, queries, gensim_index):
+def log_precision(method, index, queries, gensim_index, expecteds=None):
     logger.info("computing accuracy of %s at k=%s, acc=%s" % (method.__name__, TOP_N, ACC))
-    acc, diffs = get_accuracy(method(index, queries), queries, gensim_index)
+    acc, diffs = get_accuracy(method(index, queries), queries, gensim_index, expecteds)
     logger.info("%s precision=%.3f, avg diff=%.3f" % (method.__name__, acc, diffs))
 
 

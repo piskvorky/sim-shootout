@@ -15,7 +15,7 @@ shift 1
 
 ks="1 10 50 100 1000"
 methods="gensim flann annoy"
-accs="0.1 0.01"
+accs="low high"
 
 # run all gensim tests
 for method in $methods; do

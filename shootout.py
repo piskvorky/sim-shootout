@@ -25,14 +25,14 @@ import gensim
 
 MAX_DOCS = 10000000  # clip the dataset at this many docs, if larger (=use a wiki subset)
 TOP_N = 50  # how many similars to ask for
-ACC = 0.1  # what accuracy are we aiming for (avg k-NN diff = cumulative gain)
+ACC = 'high'  # what accuracy are we aiming for (avg k-NN diff = cumulative gain); tuned so that low=0.1, high=0.01 at k=50
 NUM_QUERIES = 100  # query with this many different, randomly selected documents
 REPEATS = 3  # run all queries this many times, take the best timing
 
 ACC_SETTINGS = {
-    'flann': {0.1: 0.5, 0.01: 0.98},
-    'annoy': {0.1: 12, 0.01: 50},
-    'lsh': {0.1: {'k': 10, 'l': 10}, 0.01: {'k': 10, 'l': 10}},
+    'flann': {'low': 0.7, 'high': 0.95},
+    'annoy': {'low': 12, 'high': 100},
+    'lsh': {'low': {'k': 10, 'l': 10}, 'high': {'k': 10, 'l': 10}},
 }
 
 
@@ -93,7 +93,11 @@ def lsh_1by1(index, queries):
 
 
 def flann_predictions(index, queries):
-    return [index.nn_index(query, TOP_N)[0][0] for query in queries]
+    if TOP_N == 1:
+        # flann returns differently shaped arrays when asked for only 1 nearest neighbour
+        return [index.nn_index(query, TOP_N)[0] for query in queries]
+    else:
+        return [index.nn_index(query, TOP_N)[0][0] for query in queries]
 
 
 def sklearn_predictions(index, queries):
@@ -154,7 +158,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 2:
         TOP_N = int(sys.argv[2])
     if len(sys.argv) > 3:
-        ACC = float(sys.argv[3])
+        ACC = sys.argv[3]
     lsi_vectors = os.path.join(indir, 'lsi_vectors.mm.gz')
     logger.info("testing k=%s and avg diff=%s" % (TOP_N, ACC))
 
@@ -162,7 +166,7 @@ if __name__ == '__main__':
     num_features, num_docs = mm.num_terms, min(mm.num_docs, MAX_DOCS)
     sim_prefix = os.path.join(indir, 'index%s' % num_docs)
 
-    # some libs (flann, sklearn) expect th entire input as a full matrix, all at once (no streaming)
+    # some libs (flann, sklearn) expect the entire input as a full matrix, all at once (no streaming)
     if os.path.exists(sim_prefix + "_clipped.npy"):
         logger.info("loading dense corpus (need for flann, scikit-learn)")
         clipped = numpy.load(sim_prefix + "_clipped.npy", mmap_mode='r')

@@ -24,15 +24,94 @@ import numpy
 import gensim
 
 MAX_DOCS = 10000000  # clip the dataset at this many docs, if larger (=use a wiki subset)
-TOP_N = 50  # how many similars to ask for
+TOP_N = 10  # how many similars to ask for
 ACC = 'high'  # what accuracy are we aiming for (avg k-NN diff = cumulative gain); tuned so that low=0.1, high=0.01 at k=50
-NUM_QUERIES = 100  # query with this many different, randomly selected documents
-REPEATS = 3  # run all queries this many times, take the best timing
+NUM_QUERIES = 1000  # query with this many different documents, as a single experiment
+REPEATS = 2  # run all queries this many times, take the best timing
+
+FLANN_99 = {  # autotuned on wiki corpus with target_precision=0.95
+    'log_level': 'info',
+    'target_precision': 0.99,
+    'algorithm': 'autotuned',
+}
+
+FLANN_98 = {  # autotuned on wiki corpus with target_precision=0.95
+    'iterations': 5,
+    'multi_probe_level_': 2L,
+    'cb_index': 0.20000000298023224,
+    'centers_init': 'default',
+    'log_level': 'info',
+    'build_weight': 0.009999999776482582,
+    'leaf_max_size': 4,
+    'memory_weight': 0.0,
+    'sample_fraction': 0.10000000149011612,
+    'checks': 5072,
+    'max_neighbors': -1,
+    'random_seed': 638707089,
+    'trees': 1,
+    'target_precision': 0.98,
+    'table_number_': 12L,
+    'sorted': 1,
+    'branching': 16,
+    'algorithm': 'kmeans',
+    'key_size_': 20L,
+    'eps': 0.0,
+    'cores': 0,
+}
+
+FLANN_95 = {  # autotuned on wiki corpus with target_precision=0.95
+    'iterations': 5,
+    'multi_probe_level_': 2L,
+    'cb_index': 0.20000000298023224,
+    'centers_init': 'default',
+    'log_level': 'info',
+    'build_weight': 0.009999999776482582,
+    'leaf_max_size': 4,
+    'memory_weight': 0.0,
+    'sample_fraction': 0.10000000149011612,
+    'checks': 3072,
+    'max_neighbors': -1,
+    'random_seed': 638707089,
+    'trees': 1,
+    'target_precision': 0.949999988079071,
+    'table_number_': 12L,
+    'sorted': 1,
+    'branching': 16,
+    'algorithm': 'kmeans',
+    'key_size_': 20L,
+    'eps': 0.0,
+    'cores': 0,
+}
+
+FLANN_7 = {
+    'iterations': 5,
+    'multi_probe_level_': 2L,
+    'cb_index': 0.0,
+    'centers_init': 'default',
+    'log_level': 'info',
+    'build_weight': 0.009999999776482582,
+    'leaf_max_size': 4,
+    'memory_weight': 0.0,
+    'sample_fraction': 0.10000000149011612,
+    'checks': 684,
+    'max_neighbors': -1,
+    'random_seed': 746157721,
+    'trees': 4,
+    'target_precision': 0.699999988079071,
+    'table_number_': 12L,
+    'sorted': 1,
+    'branching': 32,
+    'algorithm': 'default',
+    'key_size_': 20L,
+    'eps': 0.0,
+    'cores': 0
+}
+
 
 ACC_SETTINGS = {
-    'flann': {'low': 0.7, 'high': 0.95},
+    'flann': {'low': FLANN_95, 'high': FLANN_99},
     'annoy': {'low': 12, 'high': 100},
-    'lsh': {'low': {'k': 10, 'l': 10}, 'high': {'k': 10, 'l': 10}},
+    'lsh': {'low': {'k': 10, 'l': 10, 'w': float('inf')}, 'high': {'k': 10, 'l': 10, 'w': float('inf')}},
 }
 
 
@@ -128,13 +207,13 @@ def get_accuracy(predicted_ids, queries, gensim_index, expecteds=None):
         # if we got less than TOP_N results, assume zero similarity for the missing ids (LSH)
         predicted_sims.extend([0.0] * (TOP_N - len(predicted_sims)))
         diffs.extend(-numpy.array(predicted_sims) + expected_sims)
-    return correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs)
+    return correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs), max(diffs)
 
 
 def log_precision(method, index, queries, gensim_index, expecteds=None):
-    logger.info("computing accuracy of %s at k=%s, acc=%s" % (method.__name__, TOP_N, ACC))
-    acc, diffs = get_accuracy(method(index, queries), queries, gensim_index, expecteds)
-    logger.info("%s precision=%.3f, avg diff=%.3f" % (method.__name__, acc, diffs))
+    logger.info("computing accuracy of %s over %s queries at k=%s, acc=%s" % (method.__name__, NUM_QUERIES, TOP_N, ACC))
+    acc, avg_diff, max_diff = get_accuracy(method(index, queries), queries, gensim_index, expecteds)
+    logger.info("%s precision=%.3f, avg diff=%.3f, max diff=%.3f" % (method.__name__, acc, avg_diff, max_diff))
 
 
 def print_similar(title, index_gensim, id2title, title2id):
@@ -215,7 +294,7 @@ if __name__ == '__main__':
         else:
             logger.info("building FLANN index")
             # flann expects index vectors as a 2d numpy array, features = columns
-            params = index_flann.build_index(clipped, algorithm="autotuned", target_precision=ACC_SETTINGS['flann'][ACC], log_level="info")
+            params = index_flann.build_index(clipped, **ACC_SETTINGS['flann'][ACC])
             logger.info("built flann index with %s" % params)
             index_flann.save_index(flann_fname)
         logger.info("finished FLANN index")
@@ -250,7 +329,7 @@ if __name__ == '__main__':
             index_lsh = gensim.utils.unpickle(sim_prefix + "_lsh")
         else:
             logger.info("building lsh index")
-            index_lsh = lsh.index(w=float('inf'), k=ACC_SETTINGS['lsh'][ACC]['k'], l=ACC_SETTINGS['lsh'][ACC]['l'])
+            index_lsh = lsh.index(**ACC_SETTINGS['lsh'][ACC])
             # lsh expects input as D x 1 numpy arrays
             for vecno, vec in enumerate(clipped_corpus):
                 index_lsh.InsertIntoTable(vecno, gensim.matutils.sparse2full(vec)[:, None])

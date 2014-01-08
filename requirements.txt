@@ -1,9 +1,9 @@
-Bottleneck
+numpy
+scipy
 Cython
+Bottleneck
 #annoy==1.0
 #flann==1.8.4
-gensim
 ipython
-numpy
 scikit-learn
-scipy
+gensim

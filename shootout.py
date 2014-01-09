@@ -29,10 +29,29 @@ ACC = 'high'  # what accuracy are we aiming for (avg k-NN diff = cumulative gain
 NUM_QUERIES = 1000  # query with this many different documents, as a single experiment
 REPEATS = 2  # run all queries this many times, take the best timing
 
+
 FLANN_99 = {  # autotuned on wiki corpus with target_precision=0.95
+    'iterations': 5,
+    'multi_probe_level_': 2L,
+    'cb_index': 0.20000000298023224,
+    'centers_init': 'default',
     'log_level': 'info',
+    'build_weight': 0.009999999776482582,
+    'leaf_max_size': 4,
+    'memory_weight': 0.0,
+    'sample_fraction': 0.10000000149011612,
+    'checks': 12288,
+    'max_neighbors': -1,
+    'random_seed': 215924497,
+    'trees': 1,
     'target_precision': 0.99,
-    'algorithm': 'autotuned',
+    'table_number_': 12L,
+    'sorted': 1,
+    'branching': 32,
+    'algorithm': 'kmeans',
+    'key_size_': 20L,
+    'eps': 0.0,
+    'cores': 0
 }
 
 FLANN_98 = {  # autotuned on wiki corpus with target_precision=0.95
@@ -109,8 +128,8 @@ FLANN_7 = {
 
 
 ACC_SETTINGS = {
-    'flann': {'low': FLANN_95, 'high': FLANN_99},
-    'annoy': {'low': 12, 'high': 100},
+    'flann': {'7': FLANN_7, '95': FLANN_95, '99': FLANN_99},
+    'annoy': {'10': 10, '50': 50, '100': 100, '500': 500},
     'lsh': {'low': {'k': 10, 'l': 10, 'w': float('inf')}, 'high': {'k': 10, 'l': 10, 'w': float('inf')}},
 }
 

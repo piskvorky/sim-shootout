@@ -25,8 +25,8 @@ import gensim
 
 MAX_DOCS = 10000000  # clip the dataset at this many docs, if larger (=use a wiki subset)
 TOP_N = 10  # how many similars to ask for
-ACC = 'high'  # what accuracy are we aiming for (avg k-NN diff = cumulative gain); tuned so that low=0.1, high=0.01 at k=50
-NUM_QUERIES = 1000  # query with this many different documents, as a single experiment
+ACC = 'exact'  # what accuracy are we aiming for
+NUM_QUERIES = 100  # query with this many different documents, as a single experiment
 REPEATS = 2  # run all queries this many times, take the best timing
 
 
@@ -100,6 +100,30 @@ FLANN_95 = {  # autotuned on wiki corpus with target_precision=0.95
     'key_size_': 20L,
     'eps': 0.0,
     'cores': 0,
+}
+
+FLANN_9 = {
+    'algorithm': 'kmeans',
+    'branching': 32,
+    'build_weight': 0.009999999776482582,
+    'cb_index': 0.20000000298023224,
+    'centers_init': 'default',
+    'checks': 2688,
+    'cores': 0,
+    'eps': 0.0,
+    'iterations': 1,
+    'key_size_': 20L,
+    'leaf_max_size': 4,
+    'log_level': 'info',
+    'max_neighbors': -1,
+    'memory_weight': 0.0,
+    'multi_probe_level_': 2L,
+    'random_seed': 354901449,
+    'sample_fraction': 0.10000000149011612,
+    'sorted': 1,
+    'table_number_': 12L,
+    'target_precision': 0.9,
+    'trees': 1
 }
 
 FLANN_7 = {
@@ -218,7 +242,6 @@ def get_accuracy(predicted_ids, queries, gensim_index, expecteds=None):
     """Return precision (=percentage of overlapping ids) and average similarity difference."""
     logger.info("computing ground truth")
     correct, diffs = 0.0, []
-    gensim_index.num_best = TOP_N
     for query_no, (predicted, query) in enumerate(zip(predicted_ids, queries)):
         expected_ids, expected_sims = zip(*gensim_index[query]) if expecteds is None else expecteds[query_no]
         correct += len(set(expected_ids).intersection(predicted))
@@ -258,7 +281,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 3:
         ACC = sys.argv[3]
     lsi_vectors = os.path.join(indir, 'lsi_vectors.mm.gz')
-    logger.info("testing k=%s and avg diff=%s" % (TOP_N, ACC))
+    logger.info("testing k=%s and acc=%s" % (TOP_N, ACC))
 
     mm = gensim.corpora.MmCorpus(gensim.utils.smart_open(lsi_vectors))
     num_features, num_docs = mm.num_terms, min(mm.num_docs, MAX_DOCS)
@@ -290,6 +313,7 @@ if __name__ == '__main__':
         logger.info("building gensim index")
         index_gensim = gensim.similarities.Similarity(sim_prefix, clipped_corpus, num_best=TOP_N, num_features=num_features, shardsize=100000)
         index_gensim.save(sim_prefix + "_gensim")
+    index_gensim.num_best = TOP_N
     logger.info("finished gensim index %s" % index_gensim)
 
     logger.info("loading mapping between article titles and ids")
@@ -298,7 +322,7 @@ if __name__ == '__main__':
     # print_similar('Anarchism', index_gensim, id2title, title2id)
 
     if 'gensim' in program:
-        # log_precision(gensim_predictions, index_gensim, queries, index_gensim)  FIXME
+        # log_precision(gensim_predictions, index_gensim, queries, index_gensim)
         gensim_at_once(index_gensim, queries)
         gensim_1by1(index_gensim, queries)
 

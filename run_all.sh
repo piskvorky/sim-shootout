@@ -14,7 +14,7 @@ datadir=$1
 shift 1
 
 # first, download the raw wiki dump and convert it to LSI vectors, if not already present
-articles=$data_dir/lsi_vectors.mm.gz
+articles=$datadir/lsi_vectors.mm.gz
 if [ ! -e $articles ]; then
 	wiki_file=$datadir/enwiki-latest-pages-articles.xml.bz2
 	if [ ! -e $wiki_file ]; then
@@ -29,7 +29,7 @@ run_combinations () {
 	for method in $1; do
 	    for acc in $2; do
 	        for k in $ks; do
-	            echo "running $method $k $acc"
+	            echo "running $method k=$k acc=$acc"
 	            ./shootout_${method}.py $datadir $k $acc &> ./log_${method}_${k}_${acc}.txt
 	        done
 	    done
@@ -38,6 +38,6 @@ run_combinations () {
 
 # then create indexes for the various libraries & take accuracy measurements
 ks="1 10 50 100 1000"
-run_combinations "gensim" "exact" $ks
+OPENBLAS_NUM_THREADS=1 run_combinations "gensim" "exact" $ks
 run_combinations "annoy" "10 50 100 500" $ks
 run_combinations "flann" "7 95 99" $ks

@@ -30,7 +30,13 @@ NUM_QUERIES = 100  # query with this many different documents, as a single exper
 REPEATS = 2  # run all queries this many times, take the best timing
 
 
-FLANN_99 = {  # autotuned on wiki corpus with target_precision=0.95
+FLANN_995 = {
+    'log_level': 'info',
+    'target_precision': 0.995,
+    'algorithm': 'autotuned',
+}
+
+FLANN_99 = {  # autotuned on wiki corpus with target_precision=0.99
     'iterations': 5,
     'multi_probe_level_': 2L,
     'cb_index': 0.20000000298023224,
@@ -54,7 +60,7 @@ FLANN_99 = {  # autotuned on wiki corpus with target_precision=0.95
     'cores': 0
 }
 
-FLANN_98 = {  # autotuned on wiki corpus with target_precision=0.95
+FLANN_98 = {
     'iterations': 5,
     'multi_probe_level_': 2L,
     'cb_index': 0.20000000298023224,
@@ -78,7 +84,7 @@ FLANN_98 = {  # autotuned on wiki corpus with target_precision=0.95
     'cores': 0,
 }
 
-FLANN_95 = {  # autotuned on wiki corpus with target_precision=0.95
+FLANN_95 = {
     'iterations': 5,
     'multi_probe_level_': 2L,
     'cb_index': 0.20000000298023224,
@@ -152,7 +158,7 @@ FLANN_7 = {
 
 
 ACC_SETTINGS = {
-    'flann': {'7': FLANN_7, '95': FLANN_95, '99': FLANN_99},
+    'flann': {'7': FLANN_7, '9': FLANN_9, '95': FLANN_95, '99': FLANN_99, '995': FLANN_995},
     'annoy': {'10': 10, '50': 50, '100': 100, '500': 500},
     'lsh': {'low': {'k': 10, 'l': 10, 'w': float('inf')}, 'high': {'k': 10, 'l': 10, 'w': float('inf')}},
 }
@@ -391,7 +397,7 @@ if __name__ == '__main__':
             logger.info("building sklearn index")
             index_sklearn = NearestNeighbors(n_neighbors=TOP_N, algorithm='auto').fit(clipped)
             logger.info("built sklearn index %s" % index_sklearn._fit_method)
-            gensim.utils.pickle(index_sklearn, sim_prefix + '_sklearn')
+            # gensim.utils.pickle(index_sklearn, sim_prefix + '_sklearn')  # 32GB RAM not enough to store the scikit-learn model...
         logger.info("finished sklearn index")
 
         log_precision(sklearn_predictions, index_sklearn, queries, index_gensim)

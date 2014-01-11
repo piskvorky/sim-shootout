@@ -27,7 +27,7 @@ MAX_DOCS = 10000000  # clip the dataset at this many docs, if larger (=use a wik
 TOP_N = 10  # how many similars to ask for
 ACC = 'exact'  # what accuracy are we aiming for
 NUM_QUERIES = 100  # query with this many different documents, as a single experiment
-REPEATS = 2  # run all queries this many times, take the best timing
+REPEATS = 3  # run all queries this many times, take the best timing
 
 
 FLANN_995 = {
@@ -159,7 +159,7 @@ FLANN_7 = {
 
 ACC_SETTINGS = {
     'flann': {'7': FLANN_7, '9': FLANN_9, '95': FLANN_95, '99': FLANN_99, '995': FLANN_995},
-    'annoy': {'10': 10, '50': 50, '100': 100, '500': 500},
+    'annoy': {'1': 1, '10': 10, '50': 50, '100': 100, '500': 500},
     'lsh': {'low': {'k': 10, 'l': 10, 'w': float('inf')}, 'high': {'k': 10, 'l': 10, 'w': float('inf')}},
 }
 
@@ -255,13 +255,13 @@ def get_accuracy(predicted_ids, queries, gensim_index, expecteds=None):
         # if we got less than TOP_N results, assume zero similarity for the missing ids (LSH)
         predicted_sims.extend([0.0] * (TOP_N - len(predicted_sims)))
         diffs.extend(-numpy.array(predicted_sims) + expected_sims)
-    return correct / (TOP_N * len(queries)), 1.0 * sum(diffs) / len(diffs), max(diffs)
+    return correct / (TOP_N * len(queries)), numpy.mean(diffs), numpy.std(diffs), max(diffs)
 
 
 def log_precision(method, index, queries, gensim_index, expecteds=None):
     logger.info("computing accuracy of %s over %s queries at k=%s, acc=%s" % (method.__name__, NUM_QUERIES, TOP_N, ACC))
-    acc, avg_diff, max_diff = get_accuracy(method(index, queries), queries, gensim_index, expecteds)
-    logger.info("%s precision=%.3f, avg diff=%.3f, max diff=%.3f" % (method.__name__, acc, avg_diff, max_diff))
+    acc, avg_diff, std_diff, max_diff = get_accuracy(method(index, queries), queries, gensim_index, expecteds)
+    logger.info("%s precision=%.3f, avg diff=%.3f, std diff=%.5f, max diff=%.3f" % (method.__name__, acc, avg_diff, std_diff, max_diff))
 
 
 def print_similar(title, index_gensim, id2title, title2id):
@@ -397,7 +397,7 @@ if __name__ == '__main__':
             logger.info("building sklearn index")
             index_sklearn = NearestNeighbors(n_neighbors=TOP_N, algorithm='auto').fit(clipped)
             logger.info("built sklearn index %s" % index_sklearn._fit_method)
-            # gensim.utils.pickle(index_sklearn, sim_prefix + '_sklearn')  # 32GB RAM not enough to store the scikit-learn model...
+            gensim.utils.pickle(index_sklearn, sim_prefix + '_sklearn')  # 32GB RAM not enough to store the scikit-learn model...
         logger.info("finished sklearn index")
 
         log_precision(sklearn_predictions, index_sklearn, queries, index_gensim)

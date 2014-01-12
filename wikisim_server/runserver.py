@@ -87,6 +87,7 @@ class Server(object):
         """
         title = kwargs.pop('title', u'').lower().encode('utf8')
         if title in self.title2id:
+            logger.info("finding similars for %s" % title)
             query = self.title2id[title]  # throws if title not found
             nn = self.index_annoy.get_nns_by_item(query, self.k)
             result = [self.id2title[pos2] for pos2 in nn]  # convert from ids (=ints) back to names (strings)

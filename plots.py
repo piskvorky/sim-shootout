@@ -172,6 +172,6 @@ def generate_figures():
 def generate_table():
     for method in [ANNOY1, ANNOY10, ANNOY100, ANNOY1000, FLANN1, FLANN10, FLANN100, FLANN1000]:
         for label, timing, precision, avgdiff, stddevdiff, maxdiff in zip(*method):
-            print '<tr><td>%s</td><td>%s</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%.2f</td><td>%.1f</td><td>%s</td><td>%s</td></tr>' %\
+            print '<tr><td>%s</td><td>%s</td><td>%.2f</td><td>%.2f</td><td>%.3f</td><td>%.2f</td><td>%.1f</td><td>%s</td><td>%s</td></tr>' %\
                 (label, '', precision, avgdiff, stddevdiff, maxdiff, timing, '', '')
             print

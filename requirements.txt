@@ -1,3 +1,4 @@
+cherrypy
 numpy
 scipy
 Cython

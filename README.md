@@ -11,4 +11,4 @@ Code for the blog series on benchmarking nearest-neighbour libraries:
 
 The target are libraries that expose a Python interface and allow (exact or approximate) k-NN search in high dimensional vector spaces.
 
-Run `runall.sh` to download Wikipedia, index it and run all experiments.
+Run `run_all.sh` to download Wikipedia, index it and run all experiments.

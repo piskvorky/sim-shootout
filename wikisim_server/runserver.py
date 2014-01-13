@@ -6,7 +6,9 @@
 """
 USAGE: %(program)s CONFIG
 
-    Start the wiki-sim server and leave it running (ctrl+c to quit).
+    Start the wiki-sim server for http://radimrehurek.com/2014/01/performance-shootout-of-nearest-neighbours-querying/#wikisim
+and leave it running (ctrl+c to quit).
+
 Ports/interfaces for the server are specified in the config file.
 
 Example:

@@ -74,7 +74,7 @@ class Server(object):
         self.index_annoy = annoy.AnnoyIndex(500, metric='angular')
         self.index_annoy.load(os.path.join(basedir, 'index3507620_annoy_100'))
         self.id2title = gensim.utils.unpickle(os.path.join(basedir, 'id2title'))
-        self.title2id = dict((title.lower(), pos) for pos, title in enumerate(self.id2title))
+        self.title2id = dict((gensim.utils.to_unicode(title).lower(), pos) for pos, title in enumerate(self.id2title))
 
     @server_exception_wrap
     @cherrypy.expose
@@ -85,12 +85,12 @@ class Server(object):
         For a Wiki article named `title`, return the top-k most similar Wikipedia articles.
 
         """
-        title = kwargs.pop('title', u'').lower().encode('utf8')
+        title = gensim.utils.to_unicode(kwargs.pop('title', u'')).lower()
         if title in self.title2id:
             logger.info("finding similars for %s" % title)
-            query = self.title2id[title]  # throws if title not found
+            query = self.title2id[title]  # convert query from article name (string) to index id (int)
             nn = self.index_annoy.get_nns_by_item(query, self.k)
-            result = [self.id2title[pos2] for pos2 in nn]  # convert from ids (=ints) back to names (strings)
+            result = [self.id2title[pos2] for pos2 in nn]  # convert top10 from ids back to article names
         else:
             result = []
         return {'nn': result, 'num_articles': len(self.id2title)}

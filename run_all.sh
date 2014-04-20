@@ -41,3 +41,4 @@ ks="1 10 100 1000"
 OPENBLAS_NUM_THREADS=1 run_combinations "gensim" "exact" $ks
 run_combinations "annoy" "1 10 50 100 500" $ks
 run_combinations "flann" "7 9 99" $ks
+run_combinations "kgraph" "default" $ks

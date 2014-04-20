@@ -93,6 +93,7 @@ class Server(object):
             query = self.title2id[title]  # convert query from article name (string) to index id (int)
             nn = self.index_annoy.get_nns_by_item(query, self.k)
             result = [self.id2title[pos2] for pos2 in nn]  # convert top10 from ids back to article names
+            logger.info("similars to %s: %s" % (title, result))
         else:
             result = []
         return {'nn': result, 'num_articles': len(self.id2title)}

@@ -210,6 +210,15 @@ def sklearn_at_once(index, queries):
     _ = index.kneighbors(queries, n_neighbors=TOP_N)
 
 @profile
+def kgraph_1by1(index, queries, dataset):
+    for query in queries:
+        _ = index.search(dataset, query[None, :], K=TOP_N, threads=1)
+
+@profile
+def kgraph_at_once(index, queries, dataset):
+    _ = index.search(dataset, queries, K=TOP_N, threads=1)
+
+@profile
 def annoy_1by1(index, queries):
     for query in queries:
         _ = index.get_nns_by_vector(list(query.astype(float)), TOP_N)
@@ -242,6 +251,11 @@ def lsh_predictions(index, queries):
 
 def gensim_predictions(index, queries):
     return [[pos for pos, _ in index[query]] for query in queries]
+
+
+def kgraph_predictions(index, queries):
+    global dataset
+    return index.search(dataset, queries, K=TOP_N, threads=1)
 
 
 def get_accuracy(predicted_ids, queries, gensim_index, expecteds=None):
@@ -403,5 +417,24 @@ if __name__ == '__main__':
         log_precision(sklearn_predictions, index_sklearn, queries, index_gensim)
         sklearn_1by1(index_sklearn, queries)
         sklearn_at_once(index_sklearn, queries)
+
+    if 'kgraph' in program:
+        import pykgraph
+        index_kgraph = pykgraph.KGraph()
+        if os.path.exists(sim_prefix + "_kgraph"):
+            logger.info("loading kgraph index")
+            index_kgraph.load(sim_prefix + "_kgraph")
+        else:
+            logger.info("building kgraph index")
+            index_kgraph.build(clipped)
+            logger.info("built kgraph index")
+            index_kgraph.save(sim_prefix + "_kgraph")
+        logger.info("finished kgraph index")
+
+        global dataset
+        dataset = clipped
+        log_precision(kgraph_predictions, index_kgraph, queries, index_gensim)
+        kgraph_1by1(index_kgraph, queries, clipped)
+        kgraph_at_once(index_kgraph, queries, clipped)
 
     logger.info("finished running %s" % program)

@@ -39,7 +39,7 @@ MIN_WORDS = 50  # ignore articles with fewer tokens (redirects, stubs etc)
 NUM_TOPICS = 500  # number of latent factors for LSA
 
 
-def process_article((title, text)):
+def process_article((title, text, pageid)):
     """Parse a wikipedia article, returning its content as `(title, list of tokens)`, all utf8."""
     text = gensim.corpora.wikicorpus.filter_wiki(text)  # remove markup, get plain text
     return title.encode('utf8').replace('\t', ' '), gensim.utils.simple_preprocess(text)

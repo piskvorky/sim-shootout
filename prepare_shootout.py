@@ -40,9 +40,9 @@ NUM_TOPICS = 500  # number of latent factors for LSA
 
 
 def process_article((title, text, pageid)):
-    """Parse a wikipedia article, returning its content as `(title, list of tokens)`, all utf8."""
+    """Parse a wikipedia article, returning its content as `(title, list of tokens)`, all unicode."""
     text = gensim.corpora.wikicorpus.filter_wiki(text)  # remove markup, get plain text
-    return title.encode('utf8').replace('\t', ' '), gensim.utils.simple_preprocess(text)
+    return gensim.utils.to_unicode(title).replace('\t', ' '), gensim.utils.simple_preprocess(text)
 
 
 def convert_wiki(infile, processes=multiprocessing.cpu_count()):

@@ -29,6 +29,7 @@ import multiprocessing
 import bz2
 
 import gensim
+from six import string_types
 
 logger = logging.getLogger('prepare_shootout')
 
@@ -87,12 +88,30 @@ def convert_wiki(infile, processes=multiprocessing.cpu_count()):
         (articles, positions, articles_all, positions_all, MIN_WORDS))
 
 
+def getstream(input):
+    """
+    If input is a filename (string), return `open(input)`.
+    If input is a file-like object, reset it to the beginning with `input.seek(0)`.
+    """
+    assert input is not None
+    if isinstance(input, string_types):
+        # input was a filename: open as text file
+        result = open(input)
+    else:
+        # input was a file-like object (BZ2, Gzip etc.); reset the stream to its beginning
+        result = input
+        result.seek(0)
+    return result
+
+
 class ShootoutCorpus(gensim.corpora.TextCorpus):
     def get_texts(self):
-        lines = gensim.corpora.textcorpus.getstream(self.input)  # open file/reset stream to its start
+        length = 0
+        lines = getstream(self.input)  # open file/reset stream to its start
         for lineno, line in enumerate(lines):
+            length += 1
             yield line.split('\t')[1].split()  # return tokens (ignore the title before the tab)
-        self.length = lineno + 1
+        self.length = length
 
 
 if __name__ == '__main__':

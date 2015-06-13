@@ -29,6 +29,7 @@ import multiprocessing
 import bz2
 
 import gensim
+from six import string_types
 
 logger = logging.getLogger('prepare_shootout')
 
@@ -39,10 +40,10 @@ MIN_WORDS = 50  # ignore articles with fewer tokens (redirects, stubs etc)
 NUM_TOPICS = 500  # number of latent factors for LSA
 
 
-def process_article((title, text)):
-    """Parse a wikipedia article, returning its content as `(title, list of tokens)`, all utf8."""
+def process_article((title, text, pageid)):
+    """Parse a wikipedia article, returning its content as `(title, list of tokens)`, all unicode."""
     text = gensim.corpora.wikicorpus.filter_wiki(text)  # remove markup, get plain text
-    return title.encode('utf8').replace('\t', ' '), gensim.utils.simple_preprocess(text)
+    return gensim.utils.to_unicode(title).replace('\t', ' '), gensim.utils.simple_preprocess(text)
 
 
 def convert_wiki(infile, processes=multiprocessing.cpu_count()):
@@ -87,12 +88,30 @@ def convert_wiki(infile, processes=multiprocessing.cpu_count()):
         (articles, positions, articles_all, positions_all, MIN_WORDS))
 
 
+def getstream(input):
+    """
+    If input is a filename (string), return `open(input)`.
+    If input is a file-like object, reset it to the beginning with `input.seek(0)`.
+    """
+    assert input is not None
+    if isinstance(input, string_types):
+        # input was a filename: open as text file
+        result = open(input)
+    else:
+        # input was a file-like object (BZ2, Gzip etc.); reset the stream to its beginning
+        result = input
+        result.seek(0)
+    return result
+
+
 class ShootoutCorpus(gensim.corpora.TextCorpus):
     def get_texts(self):
-        lines = gensim.corpora.textcorpus.getstream(self.input)  # open file/reset stream to its start
+        length = 0
+        lines = getstream(self.input)  # open file/reset stream to its start
         for lineno, line in enumerate(lines):
+            length += 1
             yield line.split('\t')[1].split()  # return tokens (ignore the title before the tab)
-        self.length = lineno + 1
+        self.length = length
 
 
 if __name__ == '__main__':
